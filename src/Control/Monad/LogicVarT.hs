@@ -1,13 +1,17 @@
-{-#Language GeneralizedNewtypeDeriving
-          , DeriveDataTypeable #-}
-module Control.Monad.LogicVarT 
-  ( LogicVarT
-  , LVar, lvarKey, lvarValue
-  , runLogicVarT
-  , newUnboundLVar, newBoundLVar
-  , readLVar, bindLVar, eqLVar
-  , unrollLVars
-  , )
+{-# Language GeneralizedNewtypeDeriving #-}
+{-# Language DeriveDataTypeable #-}
+{-# Language RankNTypes #-}
+
+module Control.Monad.LogicVarT --(
+--  LogicVarT
+--  , LVar, lvarKey, lvarValue
+--  , runLogicVarT
+--  , newUnboundLVar, newBoundLVar
+--  , readLVar, bindLVar, eqLVar
+--  , unrollLVars
+--  , 
+--  )
+
 where
 
 import Control.Applicative
@@ -54,7 +58,14 @@ data LVarData = LVarData Keys (IntMap.IntMap (Dynamic, IntSet.IntSet))
 
 newtype LogicVarT m a = LogicVarT (StateT LVarData m a)
   deriving (Monad, MonadTrans, Applicative,
-            Alternative, Functor, MonadPlus, MonadIO, MonadLogic)
+            Alternative, Functor, MonadPlus, MonadIO)
+
+liftSnd :: Functor f => (b -> r) -> f (a, b) -> f (a, r)
+liftSnd t = fmap (\(a,b) -> (a, t b))
+
+instance MonadLogic m => MonadLogic (LogicVarT m) where
+  msplit (LogicVarT l) = LogicVarT $ fmap (liftSnd LogicVarT) (msplit l)
+
 
 runLogicVarT :: (Monad m) => LogicVarT m a -> m a
 runLogicVarT (LogicVarT m) = evalStateT m (LVarData (keys 0) IntMap.empty)
@@ -111,7 +122,7 @@ unrollLVars = unrollLVars' IntSet.empty
     unrollLVar traversed (LVar key a) = do
       (nextA, newKey) <- LogicVarT $ gets $ \(LVarData _ t) -> 
         case IntMap.lookup key t of
-          Just (a', set) -> (((join $ fromDynamic a') `asTypeOf` a), IntSet.findMin set)
+          Just (a', set) -> (join (fromDynamic a') `asTypeOf` a, IntSet.findMin set)
           Nothing -> (a, key)
       nextA' <- gmapM (unrollLVars' (IntSet.insert newKey traversed)) nextA
       return $ LVar newKey nextA'
@@ -125,7 +136,7 @@ reachable key traversed = ext1Q (or . gmapQ (reachable key traversed)) reachable
     reachable' (LVar k (Just a)) = or $ gmapQ (reachable key (IntSet.insert k traversed)) a
 
 makeSupply :: [[a]] -> [[a]] -> [[a]]
-makeSupply inits tails = let vars = inits ++ (liftA2 (++) vars tails) in vars
+makeSupply inits tails = let vars = inits ++ liftA2 (++) vars tails in vars
 
 varNames :: [String]
 varNames = makeSupply (words "a b c d e f g h i j k") (words "1 2 3 4 5")

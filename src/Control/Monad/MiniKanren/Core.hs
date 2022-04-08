@@ -1,12 +1,13 @@
 
 {-#Language GeneralizedNewtypeDeriving #-}
 
-module Control.Monad.MiniKanren.Core 
-  ( LVar, lvarKey, lvarValue
+module Control.Monad.MiniKanren.Core (
+    LVar, lvarKey, lvarValue
   , MiniKanren, MiniKanrenT, Unifiable(..)
   , run, runAll, runT, runAllT
   , MonadKanren(..)
-  ) where
+  )
+  where
 
 import Control.Applicative
 
@@ -22,22 +23,25 @@ class (Data a) => Unifiable a where
 
 newtype MiniKanrenT m a = MiniKanrenT (LogicVarT (LogicT m) a)
   deriving (Monad, Applicative,
-            Alternative, Functor, MonadPlus, MonadIO, MonadLogic)
+            Alternative, Functor, MonadPlus, MonadIO)
+ 
+instance Monad m => MonadLogic (MiniKanrenT m) where
+  msplit (MiniKanrenT a) =
+      MiniKanrenT $ fmap (liftSnd MiniKanrenT) (msplit a)
+
 
 instance MonadTrans MiniKanrenT where
   lift m = MiniKanrenT $ lift $ lift m
 
 
-newtype MiniKanren a = MiniKanren (MiniKanrenT Identity a)
-  deriving (Monad, Applicative,
-            Alternative, Functor, MonadPlus, MonadLogic, MonadKanren)
+type MiniKanren a = MiniKanrenT Identity a
 
 
-runAll :: (Data a) => MiniKanren a -> [a]
-runAll (MiniKanren m) = runIdentity $ runAllT m
+runAll :: Data a => MiniKanren a -> [a]
+runAll m = runIdentity $ runAllT m
 
-run :: (Data a) => Int -> MiniKanren a -> [a]
-run n (MiniKanren m) = runIdentity $ runT n m
+run :: Data a => Int -> MiniKanren a -> [a]
+run n m = runIdentity $ runT n m
 
 runT :: (Monad m, Data a) => Int -> MiniKanrenT m a -> m [a]
 runT n (MiniKanrenT m) = observeManyT n (runLogicVarT (m >>= unrollLVars))
@@ -61,7 +65,7 @@ class (MonadLogic m) => MonadKanren m where
 
 
 instance (Monad m) => MonadKanren (MiniKanrenT m) where
-  freshLVar = MiniKanrenT $ newUnboundLVar
+  freshLVar = MiniKanrenT newUnboundLVar
   newLVar a = MiniKanrenT $ newBoundLVar a
   unifyLVar a b = do
       theSame <- MiniKanrenT $ eqLVar a b
