@@ -1,0 +1,42 @@
+
+name: build-test
+
+on:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - '**.pmd'
+      - appveyor.yml
+      - .gitignore
+  push:
+    paths-ignore:
+      - '**.md'
+      - '**.pmd'
+      - appveyor.yml
+      - .gitignore
+
+jobs:
+  cabal_build:
+    name: ${{ matrix.os }} / ghc ${{ matrix.ghc }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-18.04]
+        cabal: ["3.6"]
+        ghc:
+          - "8.0.2"
+          - "8.2.2"
+          - "8.6.5"
+
+    steps:
+    - uses: actions/checkout@v2
+      name: Check out code
+
+    - uses: haskell/actions/setup@v1.2
+      name: Setup Haskell
+      id: setup-haskell-cabal
+      with:
+        ghc-version: ${{ matrix.ghc }}
+        cabal-version: ${{ matrix.cabal }}
+
