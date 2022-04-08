@@ -1,0 +1,8 @@
+resolver: lts-8.24
+
+packages:
+- .
+
+
+# extra-deps: []
+
