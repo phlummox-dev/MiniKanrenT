@@ -1,7 +1,7 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-{-#Language GeneralizedNewtypeDeriving #-}
-
-module Control.Monad.MiniKanren.Core (
+module Control.Monad.MiniKanren.Core
+  (
     LVar, lvarKey, lvarValue
   , MiniKanren, MiniKanrenT, Unifiable(..)
   , run, runAll, runT, runAllT
@@ -10,7 +10,7 @@ module Control.Monad.MiniKanren.Core (
   where
 
 import Control.Applicative
-
+import Control.Arrow
 import Control.Monad
 import Control.Monad.Logic
 import Control.Monad.LogicVarT
@@ -18,16 +18,26 @@ import Control.Monad.LogicVarT
 import Data.Data
 import Data.Functor.Identity
 
+{-# ANN module "HLint: ignore Eta reduce" #-}
+
 class (Data a) => Unifiable a where
   unifyValue :: (Monad m) => a -> a -> MiniKanrenT m ()
 
 newtype MiniKanrenT m a = MiniKanrenT (LogicVarT (LogicT m) a)
-  deriving (Monad, Applicative,
-            Alternative, Functor, MonadPlus, MonadIO)
- 
+  deriving
+    ( Monad,
+      Applicative,
+      Alternative,
+      Functor,
+      MonadPlus,
+      MonadIO
+    )
+
 instance Monad m => MonadLogic (MiniKanrenT m) where
   msplit (MiniKanrenT a) =
       MiniKanrenT $ fmap (liftSnd MiniKanrenT) (msplit a)
+        where
+          liftSnd f x = second f <$> x
 
 
 instance MonadTrans MiniKanrenT where
@@ -68,16 +78,15 @@ instance (Monad m) => MonadKanren (MiniKanrenT m) where
   freshLVar = MiniKanrenT newUnboundLVar
   newLVar a = MiniKanrenT $ newBoundLVar a
   unifyLVar a b = do
-      theSame <- MiniKanrenT $ eqLVar a b
-      when (not $ theSame) $ do
-        a' <- MiniKanrenT $ readLVar a
-        b' <- MiniKanrenT $ readLVar b
-        unifyLVar' a' b'
+    theSame <- MiniKanrenT $ eqLVar a b
+    unless theSame $ do
+      a' <- MiniKanrenT $ readLVar a
+      b' <- MiniKanrenT $ readLVar b
+      unifyLVar' a' b'
     where
       unifyLVar' Nothing _ = MiniKanrenT $ bindLVar a b
       unifyLVar' _ Nothing = MiniKanrenT $ bindLVar b a
       unifyLVar' (Just aVal) (Just bVal) = do
         MiniKanrenT $ bindLVar a b
         unifyValue aVal bVal
-
 

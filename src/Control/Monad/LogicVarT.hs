@@ -1,40 +1,42 @@
-{-# Language GeneralizedNewtypeDeriving #-}
-{-# Language DeriveDataTypeable #-}
-{-# Language RankNTypes #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RankNTypes #-}
 
-module Control.Monad.LogicVarT --(
---  LogicVarT
---  , LVar, lvarKey, lvarValue
---  , runLogicVarT
---  , newUnboundLVar, newBoundLVar
---  , readLVar, bindLVar, eqLVar
---  , unrollLVars
---  , 
---  )
-
-where
+module Control.Monad.LogicVarT
+  (
+    LogicVarT
+  , LVar, lvarKey, lvarValue
+  , runLogicVarT
+  , newUnboundLVar, newBoundLVar
+  , readLVar, bindLVar, eqLVar
+  , unrollLVars
+  )
+  where
 
 import Control.Applicative
-
+import Control.Arrow
 import Control.Monad
 import Control.Monad.Logic
 import Control.Monad.Trans.State
 
 import Data.Data
-import Data.Maybe
 import Data.Dynamic
-
-import qualified Data.IntSet as IntSet
-import qualified Data.IntMap as IntMap
-
 import Data.Generics.Aliases hiding (GT)
+import qualified Data.IntMap as IntMap
+import qualified Data.IntSet as IntSet
+import Data.Maybe
 
-data LVar a = LVar { lvarKey :: IntMap.Key, lvarValue :: Maybe a }
+{-# ANN module "HLint: ignore Eta reduce" #-}
+
+data LVar a = LVar {
+      lvarKey :: IntMap.Key
+    , lvarValue :: Maybe a
+    }
   deriving (Data, Typeable)
 
 instance (Eq a) => Eq (LVar a) where
-  (LVar a Nothing) == (LVar b Nothing) = a == b 
-  (LVar _ (Just a)) == (LVar _ (Just b)) = a == b 
+  (LVar a Nothing) == (LVar b Nothing) = a == b
+  (LVar _ (Just a)) == (LVar _ (Just b)) = a == b
   _ == _ = False
 
 instance (Ord a) => Ord (LVar a) where
@@ -45,10 +47,11 @@ instance (Ord a) => Ord (LVar a) where
 
 instance (Data a, Show a) => Show (LVar a) where
   showsPrec n (LVar k a') = case a' of
-      Nothing -> showString varName
-      Just a | reachable k IntSet.empty a -> 
-        showParen (n >= 11) $ showString (varName ++ ": ") . showsPrec 0 a
-      Just a -> showsPrec n a
+    Nothing -> showString varName
+    Just a
+      | reachable k IntSet.empty a ->
+        showParen (n >= 11) $ showString (varName ++ ": ") . shows a
+    Just a -> showsPrec n a
     where
       varName = "_" ++ (varNames !! k)
 
@@ -57,14 +60,20 @@ data Keys = Keys IntMap.Key Keys
 data LVarData = LVarData Keys (IntMap.IntMap (Dynamic, IntSet.IntSet))
 
 newtype LogicVarT m a = LogicVarT (StateT LVarData m a)
-  deriving (Monad, MonadTrans, Applicative,
-            Alternative, Functor, MonadPlus, MonadIO)
-
-liftSnd :: Functor f => (b -> r) -> f (a, b) -> f (a, r)
-liftSnd t = fmap (\(a,b) -> (a, t b))
+  deriving
+    ( Monad,
+      MonadTrans,
+      Applicative,
+      Alternative,
+      Functor,
+      MonadPlus,
+      MonadIO
+    )
 
 instance MonadLogic m => MonadLogic (LogicVarT m) where
   msplit (LogicVarT l) = LogicVarT $ fmap (liftSnd LogicVarT) (msplit l)
+    where
+      liftSnd f x = second f <$> x
 
 
 runLogicVarT :: (Monad m) => LogicVarT m a -> m a
@@ -77,14 +86,17 @@ newUnboundLVar = LogicVarT $ StateT $ insert Nothing
 
 newBoundLVar :: (Monad m, Data a) => a -> LogicVarT m (LVar a)
 newBoundLVar a = LogicVarT $ StateT $ insert (Just a)
-      
+
+
 insert :: (Data a, Monad m) => Maybe a -> LVarData -> m (LVar a, LVarData)
-insert a (LVarData (Keys key next_keys) t) = 
-  return (LVar key (Nothing `asTypeOf` a)
-    , LVarData next_keys $ IntMap.insert key (toDyn a, IntSet.singleton key) t) 
+insert a (LVarData (Keys key next_keys) t) =
+  return
+    ( LVar key (Nothing `asTypeOf` a),
+      LVarData next_keys $ IntMap.insert key (toDyn a, IntSet.singleton key) t
+    )
 
 readLVar :: (Monad m, Data a) => LVar a -> LogicVarT m (Maybe a)
-readLVar (LVar key a) = LogicVarT $ gets $ \(LVarData _ t) -> 
+readLVar (LVar key a) = LogicVarT $ gets $ \(LVarData _ t) ->
   case IntMap.lookup key t of
     Just (x, _) -> join $ fromDynamic x
     Nothing -> a
@@ -92,7 +104,7 @@ readLVar (LVar key a) = LogicVarT $ gets $ \(LVarData _ t) ->
 bindLVar :: (Monad m) => LVar a -> LVar b -> LogicVarT m ()
 bindLVar x y = LogicVarT $ modify $ bindLVar' x y
   where
-    bindLVar' (LVar a _) (LVar b _) (LVarData keys t) | a == b = (LVarData keys t)
+    bindLVar' (LVar a _) (LVar b _) (LVarData keys t) | a == b = LVarData keys t
     bindLVar' (LVar key_a _) (LVar key_b _) (LVarData keys t) = fromMaybe (LVarData keys t) $ do
       (_, set_a) <- IntMap.lookup key_a t
       -- This guard will bail us out if these keys are already bound together
@@ -102,14 +114,14 @@ bindLVar x y = LogicVarT $ modify $ bindLVar' x y
       return $ LVarData keys $ IntMap.union (fromSet (const (v, set')) set') t
 
 fromSet :: (IntMap.Key -> a) -> IntSet.IntSet -> IntMap.IntMap a
-fromSet f set = IntMap.fromList $ [ (k, f k) | k <- IntSet.toList set]
+fromSet f set = IntMap.fromList [(k, f k) | k <- IntSet.toList set]
 
 eqLVar :: (Monad m) => LVar a -> LVar a -> LogicVarT m Bool
 eqLVar (LVar a _) (LVar b _) | a == b = return True
-eqLVar (LVar a _) (LVar b _) = LogicVarT $ gets $ \(LVarData _ t) -> 
- case IntMap.lookup a t of
-  Just (_, set) -> IntSet.member b set
-  Nothing -> False
+eqLVar (LVar a _) (LVar b _) = LogicVarT $ gets $ \(LVarData _ t) ->
+  case IntMap.lookup a t of
+    Just (_, set) -> IntSet.member b set
+    Nothing -> False
 
 unrollLVars :: (Monad m) => GenericM (LogicVarT m)
 unrollLVars = unrollLVars' IntSet.empty
@@ -120,7 +132,7 @@ unrollLVars = unrollLVars' IntSet.empty
     unrollLVar :: (Monad m, Data a) => IntSet.IntSet -> LVar a -> LogicVarT m (LVar a)
     unrollLVar traversed (LVar key _) | IntSet.member key traversed = return $ LVar key Nothing
     unrollLVar traversed (LVar key a) = do
-      (nextA, newKey) <- LogicVarT $ gets $ \(LVarData _ t) -> 
+      (nextA, newKey) <- LogicVarT $ gets $ \(LVarData _ t) ->
         case IntMap.lookup key t of
           Just (a', set) -> (join (fromDynamic a') `asTypeOf` a, IntSet.findMin set)
           Nothing -> (a, key)

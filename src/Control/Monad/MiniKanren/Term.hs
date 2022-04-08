@@ -1,22 +1,24 @@
-{-#Language GeneralizedNewtypeDeriving
-          , DeriveDataTypeable
-          , FlexibleInstances
-          , TypeSynonymInstances
-          #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
-module Control.Monad.MiniKanren.Term where
+module Control.Monad.MiniKanren.Term
+  where
 
 import Control.Monad.MiniKanren.Core
 
 import Data.Data
 
+{-# ANN module "HLint: ignore Eta reduce" #-}
+
 -- A datatype for playing around with lists
-data Term = Symbol String
-          | Cons (LVar Term) (LVar Term)
-          | Nil
+data Term
+  = Symbol String
+  | Cons (LVar Term) (LVar Term)
+  | Nil
   deriving (Show, Eq, Ord, Data, Typeable)
 
--- Define unification for our new datatype 
+-- Define unification for our new datatype
 instance Unifiable Term where
   unifyValue (Symbol a) (Symbol b) | a == b = successful
   unifyValue Nil Nil = successful
@@ -25,7 +27,7 @@ instance Unifiable Term where
     a2 === b2
   unifyValue _ _ = unsuccessful
 
--- This class is just for convenience. It makes it much easier to construct 
+-- This class is just for convenience. It makes it much easier to construct
 --  terms and makes our unification operator (===) much more flexible
 class CanBeTerm a where
   newTerm :: (MonadKanren m) => a -> m (LVar Term)
